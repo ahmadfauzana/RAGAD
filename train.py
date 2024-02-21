@@ -8,14 +8,13 @@ import torch.optim as optim
 import torchvision.utils as vutils
 import matplotlib.pyplot as plt
 
-from test import evaluation, visualize_component
+from test import evaluation
 from dataset import MVTecDataset
 from resnet import wide_resnet50_2
 from torch.nn import functional as F
 from dataset import get_data_transforms
 from de_resnet import de_wide_resnet50_2
 from torchvision.datasets import ImageFolder
-from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 from scipy.ndimage import gaussian_filter
 
@@ -27,10 +26,6 @@ def count_parameters(model):
 
 ifgeom = ['screw', 'zipper', 'grid', 'dot', 'crack', 'scratch', 'hole', 'wood', 'tile', 'metal']
 
-def setup_tensorboard(log_dir):
-    writer = SummaryWriter(log_dir)
-    return writer
-
 def setup_seed(seed):
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
@@ -40,12 +35,20 @@ def setup_seed(seed):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
+def loss_function(a, b):
+    cos_loss = torch.nn.CosineSimilarity()
+    loss = 0
+    for item in range(len(a)):
+        loss += torch.mean(1-cos_loss(a[item].view(a[item].shape[0],-1),
+                                      b[item].view(b[item].shape[0],-1)))
+    return loss
+
 def loss_concat(a, b):
     cos_loss = torch.nn.CosineSimilarity()
     loss = 0
     a_map = []
     b_map = []
-    size = a.[0].shape[-1]
+    size = a[0].shape[-1]
     for i in range(len(a)):
         a_map.append(F.interpolate(a[i], size=(size, size), mode='bilinear', align_corners=True))
         b_map.append(F.interpolate(b[i], size=(size, size), mode='bilinear', align_corners=True))
@@ -65,13 +68,12 @@ def train(_class_, root='./mvtec/', ckpt_path='./checkpoints/', ifgeom=None, log
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     setup_seed(seed)
-    writer = setup_tensorboard(log_dir)
     vq = mode == "sp"
 
     # Load dataset
     train_transform, gt_transform = get_data_transforms(image_size, image_size)
     train_path = os.path.join(root, _class_, 'train')
-    test_path = os.path.join(root, _class_, 'test')
+    test_path = os.path.join(root, _class_)
     if not os.path.exists(train_path):
         train_path = os.path.join(root, _class_, 'train_good')
     if not os.path.exists(test_path):
@@ -101,37 +103,42 @@ def train(_class_, root='./mvtec/', ckpt_path='./checkpoints/', ifgeom=None, log
     # Train
     print(f'Training {_class_}...')
     for epoch in range(epochs):
-        encoder.train()
-        decoder.train()
         offset.train()
         bn.train()
-        train_loss = 0
-        for i, (x, _) in tqdm(enumerate(train_dataloader), total=len(train_dataloader)):
-            x = x.to(device)
+        decoder.train()
+        loss_rec = {"main":[0],
+                    "offset":[0],
+                    "vq":[0]}
+        for k, (img, label) in enumerate(train_dataloader):
+            img = img.to(device)
+            _, img_, offset_loss = offset(img)
+            inputs = encoder(img_)
+            vq, vq_loss = bn(inputs)
+            outputs = decoder(vq)
+            main_loss = loss_function(inputs, outputs)
+            loss = main_loss + offset_loss + vq_loss
             optimizer.zero_grad()
-            if vq:
-                z, _, _, _ = encoder(x)
-                x_hat = decoder(z)
-                loss = F.mse_loss(x_hat, x)
-            else:
-                z, _, _, _ = encoder(x)
-                x_hat = decoder(z)
-                loss = F.mse_loss(x_hat, x)
             loss.backward()
             optimizer.step()
-            train_loss += loss.item()
-        train_loss /= len(train_dataloader)
-        writer.add_scalar('Loss/train', train_loss, epoch)
-        print(f'Epoch: {epoch+1}/{epochs}, Loss: {train_loss:.4f}')
-        scheduler.step()
-        if (epoch+1) % 10 == 0:
-            torch.save(encoder.state_dict(), ckp_path)
+            loss_rec["main"].append(main_loss.item())
+            loss_rec["offset"].append(offset_loss.item())
+            try:
+                loss_rec["vq"].append(vq_loss.item())
+            except:
+                loss_rec["vq"].append(0)
+        print('epoch [{}/{}], main_loss:{:.4f}, offset_loss:{:.4f}, vq_loss:{:.4f}'.format(epoch + 1, epochs, np.mean(loss_rec["main"]), np.mean(loss_rec["offset"]), np.mean(loss_rec["vq"])))
+        if (epoch + 1) % 10 == 0:
+            auroc = evaluation(offset, encoder, bn, decoder, test_dataloader, device, _class_, mode, ifgeom)
             print(f'Saved model at epoch {epoch+1}')
+            torch.save({
+                'offset': offset.state_dict(),
+                'bn': bn.state_dict(),
+                'decoder': decoder.state_dict()}, ckp_path)
+            print('Auroc:{:.3f}'.format(auroc))
+            
     print(f'Training {_class_} finished')
     torch.save(encoder.state_dict(), ckp_path)
     print(f'Saved model at epoch {epochs}')
-    writer.close()
-    print(f'Closed tensorboard')
     print(f'Evaluation...')
     encoder.load_state_dict(torch.load(ckp_path))
     encoder.eval()
@@ -140,13 +147,12 @@ def train(_class_, root='./mvtec/', ckpt_path='./checkpoints/', ifgeom=None, log
     bn.eval()
     evaluation(encoder, decoder, offset, bn, test_dataloader, device, _class_, ifgeom=ifgeom)
     print(f'Evaluation finished')
-    print(f'Visualization...')
-    visualize_component(encoder, decoder, offset, bn, test_dataloader, device, _class_, ifgeom=ifgeom)
-    print(f'Visualization finished')
     print(f'Finished {_class_}')
 
 if __name__ == '__main__':
-    for _class_ in ifgeom:
-        train(_class_)
+    root_path = "D:\\Fauzan\\Study PhD\\Research\\DMAD\\mvtec_anomaly_detection"
+    ckpt_path = "D:\\Fauzan\\Study PhD\\Research\\DMAD\\dataset\\ckpt\\ppdm"
+    item_list = ['screw', 'zipper', 'grid', 'dot', 'crack', 'scratch', 'hole', 'wood', 'tile', 'metal']
+    for i in item_list:
+        train(i, root=root_path, ckpt_path=ckpt_path, ifgeom=ifgeom, log_dir='./logs/')
     print('All finished')
-    

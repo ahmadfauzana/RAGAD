@@ -21,12 +21,11 @@ def get_data_transforms(size, isize):
     gt_transform = transforms.Compose([
         transforms.Resize(size),
         transforms.CenterCrop(isize),
-        transforms.ToTensor(),
-        transforms.Normalize()
+        transforms.ToTensor()
     ])
     return train_transform, gt_transform
 
-class MVTecDataset(torch.utils.data.MVTecDataset):
+class MVTecDataset(torch.utils.data.Dataset):
     def __init__(self, root, transform, gt_transform, phase):
         if phase == "train":
             self.img_path = os.path.join(root, 'train')
@@ -49,13 +48,15 @@ class MVTecDataset(torch.utils.data.MVTecDataset):
             if defect_type == 'good':    
                 img_paths = glob.glob(os.path.join(self.img_path, defect_type + '/*.png'))
                 img_tot_paths.extend(img_paths)
-                gt_tot_paths.extend[0] * len(img_paths)
+                gt_tot_paths.extend([0] * len(img_paths))
                 tot_labels.extend([0] * len(img_paths))
                 tot_types.extend(['good'] * len(img_paths))
             else:
                 img_paths = sorted(glob.glob(os.path.join(self.img_path, defect_type + '/*.png')))
-                img_tot_paths.extend(img_paths)
                 gt_paths = sorted(glob.glob(os.path.join(self.gt_path, defect_type + '/*.png')))
+                img_paths.sort()
+                gt_paths.sort()
+                img_tot_paths.extend(img_paths)
                 gt_tot_paths.extend(gt_paths)
                 tot_labels.extend([1] * len(img_paths))
                 tot_types.extend([defect_type] * len(img_paths))

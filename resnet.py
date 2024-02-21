@@ -1,18 +1,18 @@
 import torch
 from torch import Tensor
 import torch.nn.modules.conv as conv
-import torch.nn as nn
 import torch.nn.functional as F
+import torch.nn as nn
 try:
     from torch.hub import load_state_dict_from_url
 except ImportError:
     from torch.utils.model_zoo import load_url as load_state_dict_from_url
 from typing import Type, Any, Callable, Union, List, Optional
-import torch
 
-__all__ = ['ResNet', 'resnet18', 'resnet34', 'resnet50', 'resnet101',
-           'resnet152', 'resnext50_32x4d', 'resnext101_32x8d',
+
+__all__ = ['ResNet',
            'wide_resnet50_2', 'wide_resnet101_2']
+
 
 model_urls = {
     'resnet18': 'https://download.pytorch.org/models/resnet18-f37072fd.pth',
@@ -26,6 +26,7 @@ model_urls = {
     'wide_resnet101_2': 'https://download.pytorch.org/models/wide_resnet101_2-32ee1156.pth',
 }
 
+
 class AddCoords2d(nn.Module):
     def __init__(self):
         super(AddCoords2d, self).__init__()
@@ -33,10 +34,6 @@ class AddCoords2d(nn.Module):
         self.xx_channel_, self.yy_channel_ = None, None
 
     def forward(self, input_tensor, pe_reduction=4):
-        """
-        Args:
-            input_tensor: shape(batch, channel, x_dim, y_dim)
-        """
         batch_size_shape, channel_in_shape, dim_y, dim_x = input_tensor.shape
         if self.xx_channel is None:
             feature_size = dim_y // pe_reduction
@@ -74,7 +71,8 @@ class AddCoords2d(nn.Module):
         out = torch.cat([input_tensor, xx_channel, xx_channel_, yy_channel, yy_channel_], dim=1)
         return out
 
-class CoordConv2d(nn.Module):
+
+class CoordConv2d(conv.Conv2d):
     def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, bias=False, r=4):
         super(CoordConv2d, self).__init__(in_channels, out_channels, kernel_size, stride, padding)
         self.r = r
@@ -87,13 +85,17 @@ class CoordConv2d(nn.Module):
         out = self.conv(out)
         return out
 
+
+def conv3x3(in_planes: int, out_planes: int, stride: int = 1, groups: int = 1, dilation: int = 1) -> nn.Conv2d:
+    """3x3 convolution with padding"""
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
+                     padding=dilation, groups=groups, bias=False, dilation=dilation)
+
+
 def conv1x1(in_planes: int, out_planes: int, stride: int = 1) -> nn.Conv2d:
     """1x1 convolution"""
     return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
 
-def conv3x3(in_planes: int, out_planes: int, stride: int = 1, groups: int = 1, dilation: int = 1) -> nn.Conv2d:
-    """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=dilation, groups=groups, bias=False, dilation=dilation)
 
 class BasicBlock(nn.Module):
     expansion: int = 1
@@ -124,7 +126,7 @@ class BasicBlock(nn.Module):
         self.bn2 = norm_layer(planes)
         self.downsample = downsample
         self.stride = stride
-        
+
     def forward(self, x: Tensor) -> Tensor:
         identity = x
 
@@ -142,7 +144,8 @@ class BasicBlock(nn.Module):
         out = self.relu(out)
 
         return out
-    
+
+
 class Bottleneck(nn.Module):
     # Bottleneck in torchvision places the stride for downsampling at 3x3 convolution(self.conv2)
     # while original implementation places the stride at the first 1x1 convolution(self.conv1)
@@ -200,7 +203,9 @@ class Bottleneck(nn.Module):
 
         return out
 
+
 class ResNet(nn.Module):
+
     def __init__(
         self,
         block: Type[Union[BasicBlock, Bottleneck]],
@@ -249,19 +254,19 @@ class ResNet(nn.Module):
             elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
-        
+
         # Zero-initialize the last BN in each residual branch,
         # so that the residual branch starts with zeros, and each residual block behaves like an identity.
         # This improves the model by 0.2~0.3% according to https://arxiv.org/abs/1706.02677
-        
         if zero_init_residual:
             for m in self.modules():
                 if isinstance(m, Bottleneck):
-                    nn.init.constant_(m.bn3.weight, 0)
+                    nn.init.constant_(m.bn3.weight, 0)  # type: ignore[arg-type]
                 elif isinstance(m, BasicBlock):
-                    nn.init.constant_(m.bn2.weight, 0)
-        
-    def _make_layer(self, block: Type[Union[BasicBlock, Bottleneck]], planes: int, blocks: int, stride: int = 1, dilate: bool = False) -> nn.Sequential:
+                    nn.init.constant_(m.bn2.weight, 0)  # type: ignore[arg-type]
+
+    def _make_layer(self, block: Type[Union[BasicBlock, Bottleneck]], planes: int, blocks: int,
+                    stride: int = 1, dilate: bool = False) -> nn.Sequential:
         norm_layer = self._norm_layer
         downsample = None
         previous_dilation = self.dilation
@@ -270,9 +275,10 @@ class ResNet(nn.Module):
             stride = 1
         if stride != 1 or self.inplanes != planes * block.expansion:
             downsample = nn.Sequential(
-                conv(3, planes * block.expansion, kernel_size=1, stride=stride, bias=False),
+                conv1x1(self.inplanes, planes * block.expansion, stride),
                 norm_layer(planes * block.expansion),
             )
+
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample, self.groups,
                             self.base_width, previous_dilation, norm_layer))
@@ -281,31 +287,45 @@ class ResNet(nn.Module):
             layers.append(block(self.inplanes, planes, groups=self.groups,
                                 base_width=self.base_width, dilation=self.dilation,
                                 norm_layer=norm_layer))
+
         return nn.Sequential(*layers)
-    
+
     def _forward_impl(self, x: Tensor) -> Tensor:
+        # See note [TorchScript super()]
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)
         x = self.maxpool(x)
 
         a = self.layer1(x)
-        b = self.layer2(x)
-        c = self.layer3(x)
-        
+        b = self.layer2(a)
+        c = self.layer3(b)
+        #feature_d = self.layer4(feature_c)
+
         return [a, b, c]
-    
+
     def forward(self, x: Tensor) -> Tensor:
         return self._forward_impl(x)
-    
-def _resnet(arch: str, block: Type[Union[BasicBlock, Bottleneck]], layers: List[int], pretrained: bool, progress: bool, **kwargs: Any) -> ResNet:
+
+
+def _resnet(
+    arch: str,
+    block: Type[Union[BasicBlock, Bottleneck]],
+    layers: List[int],
+    pretrained: bool,
+    progress: bool,
+    **kwargs: Any
+) -> ResNet:
     model = ResNet(block, layers, **kwargs)
     if pretrained:
         if pretrained:
             try:
-                state_dict = load_state_dict_from_url("/data/liuwenrui/modelzoo/wide_resnet50_2-95faca4d.pth", progress=progress)
+                state_dict = torch.load("/data/liuwenrui/modelzoo/wide_resnet50_2-95faca4d.pth")
             except:
-                state_dict = torch.load(model_urls[arch], progress=progress)
+                state_dict = load_state_dict_from_url(model_urls[arch], progress=progress)
+        #for k,v in list(state_dict.items()):
+        #    if 'layer4' in k or 'fc' in k:
+        #        state_dict.pop(k)
         model.load_state_dict(state_dict)
     return model
 
@@ -321,9 +341,12 @@ class AttnBasicBlock(nn.Module):
         groups: int = 1,
         base_width: int = 64,
         dilation: int = 1,
-        norm_layer: Optional[Callable[..., nn.Module]] = None
+        norm_layer: Optional[Callable[..., nn.Module]] = None,
+        attention: bool = True,
     ) -> None:
         super(AttnBasicBlock, self).__init__()
+        self.attention = attention
+        #print("Attention:", self.attention)
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
         if groups != 1 or base_width != 64:
@@ -336,9 +359,13 @@ class AttnBasicBlock(nn.Module):
         self.relu = nn.ReLU(inplace=True)
         self.conv2 = conv3x3(planes, planes)
         self.bn2 = norm_layer(planes)
+        #self.cbam = GLEAM(planes, 16)
         self.downsample = downsample
         self.stride = stride
+
     def forward(self, x: Tensor) -> Tensor:
+        #if self.attention:
+        #    x = self.cbam(x)
         identity = x
 
         out = self.conv1(x)
@@ -348,6 +375,7 @@ class AttnBasicBlock(nn.Module):
         out = self.conv2(out)
         out = self.bn2(out)
 
+
         if self.downsample is not None:
             identity = self.downsample(x)
 
@@ -355,9 +383,10 @@ class AttnBasicBlock(nn.Module):
         out = self.relu(out)
 
         return out
-    
+
 class AttnBottleneck(nn.Module):
-    expansion = 4
+    
+    expansion: int = 4
 
     def __init__(
         self,
@@ -368,9 +397,12 @@ class AttnBottleneck(nn.Module):
         groups: int = 1,
         base_width: int = 64,
         dilation: int = 1,
-        norm_layer: Optional[Callable[..., nn.Module]] = None
+        norm_layer: Optional[Callable[..., nn.Module]] = None,
+        attention: bool = True,
     ) -> None:
         super(AttnBottleneck, self).__init__()
+        self.attention = attention
+        #print("Attention:",self.attention)
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
         width = int(planes * (base_width / 64.)) * groups
@@ -382,9 +414,15 @@ class AttnBottleneck(nn.Module):
         self.conv3 = conv1x1(width, planes * self.expansion)
         self.bn3 = norm_layer(planes * self.expansion)
         self.relu = nn.ReLU(inplace=True)
+        #self.cbam = GLEAM([int(planes * self.expansion/4),
+        #                   int(planes * self.expansion//2),
+        #                   planes * self.expansion], 16)
         self.downsample = downsample
         self.stride = stride
+
     def forward(self, x: Tensor) -> Tensor:
+        #if self.attention:
+        #    x = self.cbam(x)
         identity = x
 
         out = self.conv1(x)
@@ -401,25 +439,25 @@ class AttnBottleneck(nn.Module):
         if self.downsample is not None:
             identity = self.downsample(x)
 
+
         out += identity
         out = self.relu(out)
 
         return out
 
 class VectorQuantizer(nn.Module):
-    def __init__(self, 
-                 num_embbeddings=50,
-                 embedding_dim=256,
-                 beta=0.25):
+    def __init__(self,
+        num_embeddings=50,
+        embedding_dim=256,
+        beta=0.25):
         super(VectorQuantizer, self).__init__()
-        self.k = num_embbeddings
-        self.d = embedding_dim
+        self.K = num_embeddings
+        self.D = embedding_dim
         self.beta = beta
         
-        self.embedding = nn.Embedding(self.k, self.d)
-        self.embedding.weight.data.uniform_(-1 / self.k, 1 / self.k)
+        self.embedding = nn.Embedding(self.K, self.D)
+        self.embedding.weight.data.uniform_(-1 / self.K, 1 / self.K)
         self.triplet_loss = nn.TripletMarginLoss(margin=1.0, p=2)
-        
     def forward(self, latents):
         latents = latents.permute(0, 2, 3, 1).contiguous()  # [B x D x H x W] -> [B x H x W x D]
         latents_shape = latents.shape
@@ -429,10 +467,10 @@ class VectorQuantizer(nn.Module):
         dist = torch.sum(flat_latents ** 2, dim=1, keepdim=True) + \
                 torch.sum(self.embedding.weight ** 2, dim=1) - \
                 2 * torch.matmul(flat_latents, self.embedding.weight.t())  # [BHW x K]
+        # dist = torch.matmul(F.normalize(flat_latents, dim=1), F.normalize(self.embedding.weight).t())
         
         # Get the encoding that has the min distance
         encoding_inds = torch.argmin(dist, dim=1).unsqueeze(1)  # [BHW, 1]
-        
         # Convert to one-hot encodings
         device = latents.device
         encoding_one_hot = torch.zeros(encoding_inds.size(0), self.K, device=device)
@@ -448,8 +486,8 @@ class VectorQuantizer(nn.Module):
         # Add the residue back to the latents
         quantized_latents = latents + (quantized_latents - latents).detach()
         
-        return quantized_latents.permute(0, 3, 1, 2).contiguous(), commitment_loss * self.beta + embedding_loss  # [B x D x H x W]
-    
+        return quantized_latents.permute(0, 3, 1,2).contiguous(), commitment_loss * self.beta + embedding_loss  # [B x D x H x W]
+
 class BN_layer(nn.Module):
     def __init__(self,
                  block: Type[Union[BasicBlock, Bottleneck]],
@@ -561,7 +599,8 @@ class BN_layer(nn.Module):
 
     def forward(self, x: Tensor) -> Tensor:
         return self._forward_impl(x)
-   
+
+
 class OffsetNet(torch.nn.Module):
     def __init__(self, gamma=1, n_channel=3, bn=True):
         super(OffsetNet, self).__init__()
@@ -716,4 +755,20 @@ def wide_resnet50_2(pretrained: bool = False, progress: bool = True, vq: bool = 
     """
     kwargs['width_per_group'] = 64 * 2
     return _resnet('wide_resnet50_2', Bottleneck, [3, 4, 6, 3],
-                   pretrained, progress, **kwargs), BN_layer(AttnBottleneck, 3, vq, **kwargs), OffsetNet(gamma)
+                   pretrained, progress, **kwargs), BN_layer(AttnBottleneck,3,vq, **kwargs), OffsetNet(gamma)
+
+
+def wide_resnet101_2(pretrained: bool = False, progress: bool = True, vq: bool = False, gamma: float = 1., **kwargs: Any) -> ResNet:
+    r"""Wide ResNet-101-2 model from
+    `"Wide Residual Networks" <https://arxiv.org/pdf/1605.07146.pdf>`_.
+    The model is the same as ResNet except for the bottleneck number of channels
+    which is twice larger in every block. The number of channels in outer 1x1
+    convolutions is the same, e.g. last block in ResNet-50 has 2048-512-2048
+    channels, and in Wide ResNet-50-2 has 2048-1024-2048.
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+        progress (bool): If True, displays a progress bar of the download to stderr
+    """
+    kwargs['width_per_group'] = 64 * 2
+    return _resnet('wide_resnet101_2', Bottleneck, [3, 4, 23, 3],
+                   pretrained, progress, **kwargs), BN_layer(AttnBottleneck,3,vq,**kwargs),  OffsetNet(gamma)
