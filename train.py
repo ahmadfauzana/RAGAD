@@ -16,7 +16,6 @@ from dataset import get_data_transforms
 from de_resnet import de_wide_resnet50_2
 from torchvision.datasets import ImageFolder
 from tqdm import tqdm
-from scipy.ndimage import gaussian_filter
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 torch.backends.cudnn.benchmark = True

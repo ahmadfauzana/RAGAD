@@ -1,6 +1,5 @@
 import kornia
 import torch
-from einops import rearrange
 from omegaconf import OmegaConf
 from torch import nn
 from clip import load as load_clip
@@ -91,6 +90,27 @@ class ClipImageRetriever(nn.Module):
     def forward(self, x):
         # x is assumed to be in range [-1,1]
         return self.model.encode_image(self.preprocess(x))
+
+class CLIPTextEmbedder(nn.Module):
+    """
+    return the text embedding given a batch of text prompts
+    """
+    def __init__(self, model="ViT-B/32", device="cuda",
+                 add_k_shape=False):
+        super(CLIPTextEmbedder, self).__init__()
+        model, _ = load_clip(model, device=device)
+        self.model = model
+        self.device = device
+        self.add_k_shape = add_k_shape
+
+    def preprocess(self, text):
+        return custom_tokenize(text)
+
+    def forward(self, txt):
+        emb = self.model.encode_text(self.preprocess(txt).to(self.device))
+        if self.add_k_shape:
+            emb = emb[:,None]
+        return emb
 
 class ClipTxt2ImageRetriever(CLIPTextEmbedder):
     """
