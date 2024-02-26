@@ -1,17 +1,9 @@
 import torch 
-from dataset import get_data_transforms, MVTecDataset
 import numpy as np
-from resnet import wide_resnet50_2
-from de_resnet import de_wide_resnet50_2
-from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
-import os
-import random
 import matplotlib.pyplot as plt
-import torch.optim as optim
-import torchvision.utils as vutils
 import cv2
-import time
+from torch.nn import functional as F
 
 def cal_anomaly_map(fs_list, ft_list, out_size=224, amap_mode='mul'):
     if amap_mode == 'mul':
