@@ -2,7 +2,8 @@ import os
 import gzip
 import re
 from functools import lru_cache
-from utils import get_pairs, basic_clean, whitespace_clean
+from rdm.modules.custom_clip.utils import get_pairs, basic_clean, whitespace_clean
+import regex as re
 
 @lru_cache()
 def default_bpe():
@@ -46,7 +47,7 @@ class SimpleTokenizer(object):
         self.decoder = {v: k for k, v in self.encoder.items()}
         self.bpe_ranks = dict(zip(merges, range(len(merges))))
         self.cache = {'<|startoftext|>': '<|startoftext|>', '<|endoftext|>': '<|endoftext|>'}
-        self.pat = re.compile(r"""<\|startoftext\|>|<\|endoftext\|>|'s|'t|'re|'ve|'m|'ll|'d|[\p{L}]+|[\p{N}]|[^\s\p{L}\p{N}]+""", re.IGNORECASE)
+        self.pat = re.compile(r"""<\|startoftext\|>|<\|endoftext\|>|'s|'t|'re|'ve|'m|'ll|'d|\p{L}+|\p{N}|[^\s\p{L}\p{N}]+""", re.IGNORECASE)
 
     def bpe(self, token):
         if token in self.cache:

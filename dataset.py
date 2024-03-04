@@ -1,13 +1,8 @@
-from torchvision import datasets, transforms
+from torchvision import transforms
 from PIL import Image
 import os
 import torch
 import glob
-import numpy as np
-import random
-import torch.utils.data as data
-import torchvision.transforms.functional as TF
-from torchvision.datasets import MNIST, CIFAR10, FashionMNIST, ImageFolder
 
 def get_data_transforms(size, isize):
     mean_train = [0.485, 0.456, 0.406]

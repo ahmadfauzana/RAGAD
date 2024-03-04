@@ -16,6 +16,7 @@ from dataset import get_data_transforms
 from de_resnet import de_wide_resnet50_2
 from torchvision.datasets import ImageFolder
 from tqdm import tqdm
+from retrievers import ClipImageRetriever
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 torch.backends.cudnn.benchmark = True
@@ -82,9 +83,10 @@ def train(_class_, root='./mvtec/', ckpt_path='./checkpoints/', ifgeom=None, log
     test_data = MVTecDataset(root=test_path, transform=train_transform, gt_transform=gt_transform, phase='test')
     train_dataloader = torch.utils.data.DataLoader(train_data, batch_size=16, shuffle=True, num_workers=4)
     test_dataloader = torch.utils.data.DataLoader(test_data, batch_size=1, shuffle=False, num_workers=4)
+    retriever = ClipImageRetriever(model='ViT-B/32')
 
     # Load model
-    encoder, bn, offset = wide_resnet50_2(pretrained=True, vq=vq, gamma=gamma)
+    encoder, bn, offset = wide_resnet50_2(pretrained=True, vq=vq, gamma=gamma, retriever=retriever)
     encoder = encoder.to(device)
     bn = bn.to(device)
     offset = offset.to(device)
@@ -94,7 +96,6 @@ def train(_class_, root='./mvtec/', ckpt_path='./checkpoints/', ifgeom=None, log
     print(f'Decoder: {count_parameters(decoder)}')
     print(f'Offset: {count_parameters(offset)}')
     print(f'BatchNorm: {count_parameters(bn)}')
-    print(f'VQ: {count_parameters(bn)}')
     
     optimizer = torch.optim.Adam(list(encoder.parameters()) + list(decoder.parameters()) + list(offset.parameters()) + list(bn.parameters()), lr=1e-4)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.5)

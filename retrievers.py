@@ -12,55 +12,6 @@ def disabled_train(self, mode=True):
     does not change anymore."""
     return self
 
-class VQGANRetriever(nn.Module):
-    def __init__(self, embedder_config, device='cuda' if torch.cuda.is_available() else 'cpu'):
-        super().__init__()
-        self.device=device
-        self.model = self.get_retriever_model(embedder_config, device)
-
-    def get_retriever_model(self, config, device):
-        config = OmegaConf.load(config)
-        model = instantiate_from_config(config.model)
-        model = model.eval()
-        model.train = disabled_train
-        return model.to(device)
-
-    @torch.no_grad()
-    def preprocess(self, x):
-        x = kornia.geometry.resize(x, (256, 256), interpolation='bicubic',align_corners=True)
-        return x
-
-    def forward(self, x):
-        # x is assumed to be in range [-1,1]
-        x = x.to(self.device)
-        return self.model.encode(self.preprocess(x)).sample().reshape(x.shape[0], -1)
-
-
-class VAERetriever(nn.Module):
-    def __init__(self, embedder_config, device='cuda' if torch.cuda.is_available() else 'cpu'):
-        super().__init__()
-        self.device=device
-        self.model = self.get_retriever_model(embedder_config, device)
-
-    def get_retriever_model(self, config, device):
-        config = OmegaConf.load(config)
-        model = instantiate_from_config(config.model)
-        model = model.eval()
-        model.train = disabled_train
-        return model.to(device)
-
-    @torch.no_grad()
-    def preprocess(self, x):
-        x = kornia.geometry.resize(x, (256, 256), interpolation='bicubic',align_corners=True)
-        return x
-
-    def forward(self, x):
-        # x is assumed to be in range [-1,1]
-        x = x.to(self.device)
-        # TODO do we want to sample from the posterior?
-        return self.model.encode(self.preprocess(x)).sample().reshape(x.shape[0], -1)
-
-
 class ClipImageRetriever(nn.Module):
     def __init__(
             self,
@@ -90,32 +41,3 @@ class ClipImageRetriever(nn.Module):
     def forward(self, x):
         # x is assumed to be in range [-1,1]
         return self.model.encode_image(self.preprocess(x))
-
-class CLIPTextEmbedder(nn.Module):
-    """
-    return the text embedding given a batch of text prompts
-    """
-    def __init__(self, model="ViT-B/32", device="cuda",
-                 add_k_shape=False):
-        super(CLIPTextEmbedder, self).__init__()
-        model, _ = load_clip(model, device=device)
-        self.model = model
-        self.device = device
-        self.add_k_shape = add_k_shape
-
-    def preprocess(self, text):
-        return custom_tokenize(text)
-
-    def forward(self, txt):
-        emb = self.model.encode_text(self.preprocess(txt).to(self.device))
-        if self.add_k_shape:
-            emb = emb[:,None]
-        return emb
-
-class ClipTxt2ImageRetriever(CLIPTextEmbedder):
-    """
-    alias for. CLIPTextEmbedder
-    return the text embedding given a batch of text prompts
-    """
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
