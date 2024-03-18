@@ -16,7 +16,9 @@ from dataset import get_data_transforms
 from de_resnet import de_wide_resnet50_2
 from torchvision.datasets import ImageFolder
 from tqdm import tqdm
+from rdm.modules.custom_clip.utils import retrieval_process
 from retrievers import ClipImageRetriever
+from transformers import CLIPProcessor, CLIPModel
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 torch.backends.cudnn.benchmark = True
@@ -85,6 +87,10 @@ def train(_class_, root='./mvtec/', ckpt_path='./checkpoints/', ifgeom=None, log
     test_dataloader = torch.utils.data.DataLoader(test_data, batch_size=1, shuffle=False, num_workers=4)
     retriever = ClipImageRetriever(model='ViT-B/32')
 
+    # Initialize CLIP model and processor
+    clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
+    clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+
     # Load model
     encoder, bn, offset = wide_resnet50_2(pretrained=True, vq=vq, gamma=gamma, retriever=retriever)
     encoder = encoder.to(device)
@@ -92,10 +98,6 @@ def train(_class_, root='./mvtec/', ckpt_path='./checkpoints/', ifgeom=None, log
     offset = offset.to(device)
     decoder = de_wide_resnet50_2(pretrained=False)
     decoder = decoder.to(device)
-    print(f'Encoder: {count_parameters(encoder)}')
-    print(f'Decoder: {count_parameters(decoder)}')
-    print(f'Offset: {count_parameters(offset)}')
-    print(f'BatchNorm: {count_parameters(bn)}')
     
     optimizer = torch.optim.Adam(list(encoder.parameters()) + list(decoder.parameters()) + list(offset.parameters()) + list(bn.parameters()), lr=1e-4)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.5)
@@ -116,7 +118,10 @@ def train(_class_, root='./mvtec/', ckpt_path='./checkpoints/', ifgeom=None, log
             vq, vq_loss = bn(inputs)
             outputs = decoder(vq)
             main_loss = loss_function(inputs, outputs)
-            loss = main_loss + offset_loss + vq_loss
+            similar_features = retrieval_process(clip_model, clip_processor, img_)
+            combined_features = torch.cat([inputs, *similar_features], dim=0)
+            loss = loss_function(combined_features, outputs) + offset_loss + vq_loss   
+            # loss = main_loss + offset_loss + vq_loss
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -148,6 +153,8 @@ def train(_class_, root='./mvtec/', ckpt_path='./checkpoints/', ifgeom=None, log
     evaluation(encoder, decoder, offset, bn, test_dataloader, device, _class_, ifgeom=ifgeom)
     print(f'Evaluation finished')
     print(f'Finished {_class_}')
+
+    scheduler.step()
 
 if __name__ == '__main__':
     root_path = "D:\\Fauzan\\Study PhD\\Research\\DMAD\\mvtec_anomaly_detection"
