@@ -2,7 +2,7 @@ import os
 import gzip
 import re
 from functools import lru_cache
-from rdm.modules.custom_clip.utils import get_pairs, basic_clean, whitespace_clean
+from rdm.modules.custom.utils import get_pairs, basic_clean, whitespace_clean
 import regex as re
 
 @lru_cache()

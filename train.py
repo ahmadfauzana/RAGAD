@@ -15,9 +15,7 @@ from torch.nn import functional as F
 from dataset import get_data_transforms
 from de_resnet import de_wide_resnet50_2
 from torchvision.datasets import ImageFolder
-from tqdm import tqdm
-from rdm.modules.custom_clip.utils import retrieval_process
-from retrievers import ClipImageRetriever
+from rdm.modules.custom.utils import retrieval_process
 from diffusers import StableDiffusionPipeline, EulerDiscreteScheduler
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
@@ -87,14 +85,9 @@ def train(_class_, root='./mvtec/', ckpt_path='./checkpoints/', ifgeom=None, log
     test_dataloader = torch.utils.data.DataLoader(test_data, batch_size=1, shuffle=False, num_workers=4)
 
     model_id = "stabilityai/stable-diffusion-2"
-
-    # Use the Euler scheduler here instead
-    scheduler = EulerDiscreteScheduler.from_pretrained(model_id, subfolder="scheduler")
-    pipe = StableDiffusionPipeline.from_pretrained(model_id, scheduler=scheduler, torch_dtype=torch.float16)
-    pipe = pipe.to("cuda")
-
+    
     # Load model
-    encoder, bn, offset = wide_resnet50_2(pretrained=True, vq=vq, gamma=gamma, retriever=retriever)
+    encoder, bn, offset = wide_resnet50_2(pretrained=True, vq=vq, gamma=gamma)
     encoder = encoder.to(device)
     bn = bn.to(device)
     offset = offset.to(device)
@@ -102,8 +95,12 @@ def train(_class_, root='./mvtec/', ckpt_path='./checkpoints/', ifgeom=None, log
     decoder = decoder.to(device)
     
     optimizer = torch.optim.Adam(list(encoder.parameters()) + list(decoder.parameters()) + list(offset.parameters()) + list(bn.parameters()), lr=1e-4)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.5)
+    # scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.5)
 
+    # Load retriever
+    scheduler = EulerDiscreteScheduler.from_pretrained(model_id, subfolder="scheduler")
+    retriever = StableDiffusionPipeline.from_pretrained(model_id, scheduler=scheduler, torch_dtype=torch.float16)
+    
     # Train
     print(f'Training {_class_}...')
     for epoch in range(epochs):
@@ -119,12 +116,12 @@ def train(_class_, root='./mvtec/', ckpt_path='./checkpoints/', ifgeom=None, log
             inputs = encoder(img_)
             vq, vq_loss = bn(inputs)
             # database features implemented in function below using stable diffusion encoder
-            similar_features = retrieval_process(clip_model, clip_processor, img_)
+            similar_features = retrieval_process(retriever, img, img_, _class_, 10)
             # swap during testing
-            combined_features = torch.cat([*similar_features], dim=0)
+            retrieval_features = torch.cat([*similar_features], dim=0)
             outputs = decoder(vq)
-            main_loss = loss_function(inputs, outputs)
-            loss = loss_function(combined_features, outputs) + offset_loss + vq_loss   
+            main_loss = loss_function(retrieval_features, outputs)
+            loss = main_loss + offset_loss + vq_loss   
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()

@@ -1,6 +1,6 @@
 import torch
 from typing import List, Union
-from rdm.modules.custom_clip.simple_tokenizer import \
+from rdm.modules.custom.simple_tokenizer import \
     SimpleTokenizer as _Tokenizer
 
 __all__ = ["available_models", "load", "tokenize"]
