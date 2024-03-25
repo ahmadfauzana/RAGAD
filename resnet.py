@@ -3,13 +3,12 @@ from torch import Tensor
 import torch.nn.modules.conv as conv
 import torch.nn.functional as F
 import torch.nn as nn
-from PIL import Image
 try:
     from torch.hub import load_state_dict_from_url
 except ImportError:
     from torch.utils.model_zoo import load_url as load_state_dict_from_url
 from typing import Type, Any, Callable, Union, List, Optional
-from retrievers import ClipImageRetriever
+from pdb import set_trace as bp
 
 __all__ = ['ResNet',
            'wide_resnet50_2', 'wide_resnet101_2']
@@ -315,9 +314,9 @@ def _resnet(
     layers: List[int],
     pretrained: bool,
     progress: bool,
-    **retriever: Any
+    **kwargs: Any
 ) -> ResNet:
-    model = ResNet(block, layers, **retriever)
+    model = ResNet(block, layers, **kwargs)
     if pretrained:
         if pretrained:
             try:
@@ -447,7 +446,10 @@ class AttnBottleneck(nn.Module):
         return out
 
 class VectorQuantizer(nn.Module):
-    def __init__(self, num_embeddings=50, embedding_dim=256, beta=0.25):
+    def __init__(self,
+        num_embeddings=50,
+        embedding_dim=256,
+        beta=0.25):
         super(VectorQuantizer, self).__init__()
         self.K = num_embeddings
         self.D = embedding_dim
@@ -494,7 +496,6 @@ class BN_layer(nn.Module):
                  groups: int = 1,
                  width_per_group: int = 64,
                  norm_layer: Optional[Callable[..., nn.Module]] = None,
-                 retriever: Optional[ClipImageRetriever] = None
                  ):
         super(BN_layer, self).__init__()
         if norm_layer is None:
@@ -507,26 +508,25 @@ class BN_layer(nn.Module):
         self.vq = vq
         self.catwidth = 1024+(16+16+16) * block.expansion if self.vq else 1024*3
         self.bn_layer = self._make_layer(block, 512, layers, stride=2)
-        self.retriever = retriever
         
         if self.vq:
             print("You are running a VQ Version")
-            # self.conv1_r = conv3x3(64 * block.expansion, 16 * block.expansion)
-            # self.bn1_r = norm_layer(16 * block.expansion)
-            # self.conv2_r = conv3x3(128 * block.expansion, 16 * block.expansion)
-            # self.bn2_r = norm_layer(16 * block.expansion)
-            # self.conv3_r = conv3x3(256 * block.expansion, 16 * block.expansion)
-            # self.bn3_r = norm_layer(16 * block.expansion)
+            self.conv1_r = conv3x3(64 * block.expansion, 16 * block.expansion)
+            self.bn1_r = norm_layer(16 * block.expansion)
+            self.conv2_r = conv3x3(128 * block.expansion, 16 * block.expansion)
+            self.bn2_r = norm_layer(16 * block.expansion)
+            self.conv3_r = conv3x3(256 * block.expansion, 16 * block.expansion)
+            self.bn3_r = norm_layer(16 * block.expansion)
 
-            # self.conv1 = conv3x3((16+0) * block.expansion, 16 * block.expansion, 2)
-            # self.bn1 = norm_layer(16 * block.expansion)
-            # self.relu = nn.ReLU(inplace=True)
-            # self.conv2 = conv3x3(16 * block.expansion, 16 * block.expansion, 2)
-            # self.bn2 = norm_layer(16* block.expansion)
-            # self.conv3 = conv3x3((0+16) * block.expansion,16 * block.expansion, 2)
-            # self.bn3 = norm_layer(16 * block.expansion)
-            # self.conv4 = conv1x1((256) * block.expansion, 256 * block.expansion, 1)
-            # self.bn4 = norm_layer(256 * block.expansion)
+            self.conv1 = conv3x3((16+0) * block.expansion, 16 * block.expansion, 2)
+            self.bn1 = norm_layer(16 * block.expansion)
+            self.relu = nn.ReLU(inplace=True)
+            self.conv2 = conv3x3(16 * block.expansion, 16 * block.expansion, 2)
+            self.bn2 = norm_layer(16* block.expansion)
+            self.conv3 = conv3x3((0+16) * block.expansion,16 * block.expansion, 2)
+            self.bn3 = norm_layer(16 * block.expansion)
+            self.conv4 = conv1x1((256) * block.expansion, 256 * block.expansion, 1)
+            self.bn4 = norm_layer(256 * block.expansion)
 
             #self.vq1 = VectorQuantizer(400, 256)
             #self.vq2 = VectorQuantizer(400, 512)
@@ -574,53 +574,28 @@ class BN_layer(nn.Module):
 
     def _forward_impl(self, x: Tensor) -> Tensor:
         l1, l2, l3 = x[0], x[1], x[2]
-        if self.retriever:
-            # Perform retrieval using ClipImageRetriever for each input feature map
-            retrieved_l1 = self.retrieval_using_retriever(l1)
-            retrieved_l2 = self.retrieval_using_retriever(l2)
-            retrieved_l3 = self.retrieval_using_retriever(l3)
-            # Concatenate the retrieved feature maps
-            l1 = torch.cat([l1, retrieved_l1], dim=1)
-            l2 = torch.cat([l2, retrieved_l2], dim=1)
-            l3 = torch.cat([l3, retrieved_l3], dim=1)
-        #     loss1, loss2 = 0, 0
-        #     l3_, loss3 = self.vq3(l3)
+        if self.vq:
+            loss1, loss2 = 0, 0
+            l3_, loss3 = self.vq3(l3)
             
-        #     l1 = self.relu(self.bn1_r(self.conv1_r(l1)))
-        #     l2 = self.relu(self.bn2_r(self.conv2_r(l2)))
-        #     l3 = self.relu(self.bn3_r(self.conv3_r(l3)))
+            l1 = self.relu(self.bn1_r(self.conv1_r(l1)))
+            l2 = self.relu(self.bn2_r(self.conv2_r(l2)))
+            l3 = self.relu(self.bn3_r(self.conv3_r(l3)))
             
-        #     l1_ = self.relu(self.bn2(self.conv2(self.relu(self.bn1(self.conv1(l1))))))
-        #     l2_ = self.relu(self.bn3(self.conv3(l2)))
+            l1_ = self.relu(self.bn2(self.conv2(self.relu(self.bn1(self.conv1(l1))))))
+            l2_ = self.relu(self.bn3(self.conv3(l2)))
             
-        #     feature = torch.cat([l1_,l2_,l3, l3_],1)
-        # else:
-        #     l1 = self.relu(self.bn2(self.conv2(self.relu(self.bn1(self.conv1(l1))))))
-        #     l2 = self.relu(self.bn3(self.conv3(l2)))
-        #     feature = torch.cat([l1,l2,l3],1)
-        
-        feature = torch.cat([l1, l2, l3], 1)
+            feature = torch.cat([l1_,l2_,l3, l3_],1)
+        else:
+            l1 = self.relu(self.bn2(self.conv2(self.relu(self.bn1(self.conv1(l1))))))
+            l2 = self.relu(self.bn3(self.conv3(l2)))
+            feature = torch.cat([l1,l2,l3],1)
         output = self.bn_layer(feature)
     
-        # if self.vq:
-        #     return output.contiguous(), loss1+loss2+loss3
-        # else:
-        #     return output.contiguous(), 0
-        return output.contiguous()
-
-    def retrieval_using_retriever(self, input_feature_map):
-        with torch.no_grad():
-            # Convert the feature map to an image tensor
-            image_tensor = torch.tensor(input_feature_map).unsqueeze(0)
-            # Convert image tensor to PIL image
-            image = Image.fromarray(image_tensor.squeeze(0).cpu().numpy().astype("uint8"))
-            # Perform image retrieval using ClipImageRetriever
-            retrieved_image = self.retriever(image).unsqueeze(0)
-            # Get the image features from ClipImageRetriever
-            image_features = self.retriever.model.encode_image(retrieved_image).float()
-
-        # Return the retrieved image features
-        return image_features
+        if self.vq:
+            return output.contiguous(), loss1+loss2+loss3
+        else:
+            return output.contiguous(), 0
 
     def forward(self, x: Tensor) -> Tensor:
         return self._forward_impl(x)
@@ -767,7 +742,7 @@ class OffsetNet(torch.nn.Module):
 
             return out1, out2, offset_loss
 
-def wide_resnet50_2(pretrained: bool = False, progress: bool = True, vq: bool = False, gamma: float = 1., **retriever:Any) -> ResNet:
+def wide_resnet50_2(pretrained: bool = False, progress: bool = True, vq: bool = False, gamma: float = 1., **kwargs: Any) -> ResNet:
     r"""Wide ResNet-50-2 model from
     `"Wide Residual Networks" <https://arxiv.org/pdf/1605.07146.pdf>`_.
     The model is the same as ResNet except for the bottleneck number of channels
@@ -778,9 +753,9 @@ def wide_resnet50_2(pretrained: bool = False, progress: bool = True, vq: bool = 
         pretrained (bool): If True, returns a model pre-trained on ImageNet
         progress (bool): If True, displays a progress bar of the download to stderr
     """
-    retriever['width_per_group'] = 64 * 2
+    kwargs['width_per_group'] = 64 * 2
     return _resnet('wide_resnet50_2', Bottleneck, [3, 4, 6, 3],
-                   pretrained, progress, **retriever), BN_layer(AttnBottleneck,3,vq, **retriever), OffsetNet(gamma)
+                   pretrained, progress, **kwargs), BN_layer(AttnBottleneck,3,vq, **kwargs), OffsetNet(gamma)
 
 
 def wide_resnet101_2(pretrained: bool = False, progress: bool = True, vq: bool = False, gamma: float = 1., **kwargs: Any) -> ResNet:

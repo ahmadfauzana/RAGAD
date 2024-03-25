@@ -18,7 +18,7 @@ from torchvision.datasets import ImageFolder
 from tqdm import tqdm
 from rdm.modules.custom_clip.utils import retrieval_process
 from retrievers import ClipImageRetriever
-from transformers import CLIPProcessor, CLIPModel
+from diffusers import StableDiffusionPipeline, EulerDiscreteScheduler
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 torch.backends.cudnn.benchmark = True
@@ -85,11 +85,13 @@ def train(_class_, root='./mvtec/', ckpt_path='./checkpoints/', ifgeom=None, log
     test_data = MVTecDataset(root=test_path, transform=train_transform, gt_transform=gt_transform, phase='test')
     train_dataloader = torch.utils.data.DataLoader(train_data, batch_size=16, shuffle=True, num_workers=4)
     test_dataloader = torch.utils.data.DataLoader(test_data, batch_size=1, shuffle=False, num_workers=4)
-    retriever = ClipImageRetriever(model='ViT-B/32')
 
-    # Initialize CLIP model and processor
-    clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
-    clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+    model_id = "stabilityai/stable-diffusion-2"
+
+    # Use the Euler scheduler here instead
+    scheduler = EulerDiscreteScheduler.from_pretrained(model_id, subfolder="scheduler")
+    pipe = StableDiffusionPipeline.from_pretrained(model_id, scheduler=scheduler, torch_dtype=torch.float16)
+    pipe = pipe.to("cuda")
 
     # Load model
     encoder, bn, offset = wide_resnet50_2(pretrained=True, vq=vq, gamma=gamma, retriever=retriever)
@@ -116,12 +118,13 @@ def train(_class_, root='./mvtec/', ckpt_path='./checkpoints/', ifgeom=None, log
             _, img_, offset_loss = offset(img)
             inputs = encoder(img_)
             vq, vq_loss = bn(inputs)
+            # database features implemented in function below using stable diffusion encoder
+            similar_features = retrieval_process(clip_model, clip_processor, img_)
+            # swap during testing
+            combined_features = torch.cat([*similar_features], dim=0)
             outputs = decoder(vq)
             main_loss = loss_function(inputs, outputs)
-            similar_features = retrieval_process(clip_model, clip_processor, img_)
-            combined_features = torch.cat([inputs, *similar_features], dim=0)
             loss = loss_function(combined_features, outputs) + offset_loss + vq_loss   
-            # loss = main_loss + offset_loss + vq_loss
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
