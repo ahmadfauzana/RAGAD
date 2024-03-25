@@ -84,7 +84,7 @@ def train(_class_, root='./mvtec/', ckpt_path='./checkpoints/', ifgeom=None, log
     train_dataloader = torch.utils.data.DataLoader(train_data, batch_size=16, shuffle=True, num_workers=4)
     test_dataloader = torch.utils.data.DataLoader(test_data, batch_size=1, shuffle=False, num_workers=4)
 
-    model_id = "stabilityai/stable-diffusion-2"
+    model_id = "CompVis/stable-diffusion-v1-4"
     
     # Load model
     encoder, bn, offset = wide_resnet50_2(pretrained=True, vq=vq, gamma=gamma)
@@ -100,6 +100,7 @@ def train(_class_, root='./mvtec/', ckpt_path='./checkpoints/', ifgeom=None, log
     # Load retriever
     scheduler = EulerDiscreteScheduler.from_pretrained(model_id, subfolder="scheduler")
     retriever = StableDiffusionPipeline.from_pretrained(model_id, scheduler=scheduler, torch_dtype=torch.float16)
+    retriever = retriever.to(device)
     
     # Train
     print(f'Training {_class_}...')
@@ -116,7 +117,7 @@ def train(_class_, root='./mvtec/', ckpt_path='./checkpoints/', ifgeom=None, log
             inputs = encoder(img_)
             vq, vq_loss = bn(inputs)
             # database features implemented in function below using stable diffusion encoder
-            similar_features = retrieval_process(retriever, img, img_, _class_, 10)
+            similar_features = retrieval_process(retriever, img, img_, 10)
             # swap during testing
             retrieval_features = torch.cat([*similar_features], dim=0)
             outputs = decoder(vq)

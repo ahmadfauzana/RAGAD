@@ -27,12 +27,12 @@ def whitespace_clean(text):
 
 import torch
 
-def retrieval_process(encoder, database_images, query_images, text_prompt, num_similar_images=5):
+def retrieval_process(encoder, database_images, query_images, num_similar_images=5):
     print("Retrieval process started...")
     # Encode the database images using the encoder with the text prompt
     database_features = []
     for image in database_images:
-        features = encoder(images=image.unsqueeze(0), text=text_prompt)['pixel_values']
+        features = encoder(images=image.unsqueeze(0), text="image")['pixel_values']
         database_features.append(features)
 
     # Placeholder for similar images features
@@ -41,7 +41,7 @@ def retrieval_process(encoder, database_images, query_images, text_prompt, num_s
     # Encode the query images using the encoder with the text prompt
     query_features = []
     for query_image in query_images:
-        features = encoder(images=query_image.unsqueeze(0), text=text_prompt)['pixel_values']
+        features = encoder(images=query_image.unsqueeze(0), text="image")['pixel_values']
         query_features.append(features)
 
     # Compute similarity between query images and images in the database
