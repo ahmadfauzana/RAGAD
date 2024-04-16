@@ -2,6 +2,9 @@ import re
 import ftfy
 import html
 import torch
+import cv2
+import numpy as np
+from torchvision import models, transforms
 
 def get_pairs(word):
     """Return set of symbol pairs in a word.
@@ -25,10 +28,10 @@ def whitespace_clean(text):
     text = text.strip()
     return text
 
-import torch
-
 def retrieval_process(encoder, database_images, query_images, num_similar_images=5):
     print("Retrieval process started...")
+
+    # This is forward pass before training and save it to folder
     # Encode the database images using the encoder with the text prompt
     database_features = []
     for image in database_images:
@@ -38,6 +41,7 @@ def retrieval_process(encoder, database_images, query_images, num_similar_images
     # Placeholder for similar images features
     similar_images_features = []
 
+    # No need because already catching it from encoder
     # Encode the query images using the encoder with the text prompt
     query_features = []
     for query_image in query_images:
@@ -61,5 +65,4 @@ def retrieval_process(encoder, database_images, query_images, num_similar_images
 
     # Return features of similar images
     return similar_images_features
-
 
