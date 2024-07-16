@@ -112,9 +112,9 @@ def train(_class_, root='./mvtec/', ckpt_path='./ckpt/', ifgeom=None, tensorboar
         scheduler.step()
 
         if (epoch + 1) % 10 == 0:
-            scores = detect_anomalies(test_dataloader, reference_features, encoder, decoder, device, epoch)
+            scores, _ = detect_anomalies(test_dataloader, reference_features, encoder, decoder, device, epoch)
             save_checkpoint(encoder, decoder, ckpt_path, epoch + 1)
-            print(f'Anomaly Scores = {scores}')
+            print(f'AUROC Score = {scores}')
 
 
 if __name__ == '__main__':

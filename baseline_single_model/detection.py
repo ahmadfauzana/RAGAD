@@ -79,4 +79,4 @@ def detect_anomalies(dataloader, reference_features, encoder, decoder, device, n
     print(f"AUC Score: {auc_score_anoscore} related to Anomaly Score")
     print(f"AUC Score: {auc_score_anomap} related to Anomaly Map")
 
-    return anomaly_scores, auc_score
+    return auc_score_anoscore, auc_score_anomap
