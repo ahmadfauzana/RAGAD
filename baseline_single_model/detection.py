@@ -55,7 +55,6 @@ def detect_anomalies(dataloader, reference_features, encoder, decoder, device, n
             B, C, H, W = features.shape
             features = features.permute(0, 2, 3, 1).reshape(B * H * W, C)  # Reshape features
 
-
             similar_indices = [find_similar_images(f, reference_features) for f in features.detach().cpu().numpy()]
             retrieved_features = reference_features[similar_indices]
             retrieved_features = torch.tensor(retrieved_features, device=device).reshape(B, H, W, C).permute(0, 3, 1, 2)
@@ -67,14 +66,17 @@ def detect_anomalies(dataloader, reference_features, encoder, decoder, device, n
             anomaly_scores.extend(anomaly_score.cpu().numpy())
             all_labels.extend(labels.cpu().numpy())
 
-            visualize_images(inputs, recon_image, anomaly_map, labels, 'output/visualization_' + str(int(number / 10 + 1)) + '.png')
-
+            visualize_images(inputs, recon_image, anomaly_map, labels, 'output/visualization_anomap_' + str(int(number / 10 + 1)) + '.png')
+            visualize_images(inputs, recon_image, anomaly_score, labels, 'output/visualization_anoscore' + str(int(number / 10 + 1)) + '.png')
+            
     # update on anomaly score with ground truth and reconstruction image
     anomaly_scores = np.array(anomaly_scores)
-    all_labels = np.array(all_labels)
 
     # Compute AUC
-    auc_score = roc_auc_score(all_labels, anomaly_scores)
-    print(f"AUC score: {auc_score}")
+    auc_score_anoscore = roc_auc_score(masks, anomaly_scores)
+    auc_score_anomap = roc_auc_score(masks, anomaly_scores)
+    
+    print(f"AUC Score: {auc_score_anoscore} related to Anomaly Score")
+    print(f"AUC Score: {auc_score_anomap} related to Anomaly Map")
 
     return anomaly_scores, auc_score
