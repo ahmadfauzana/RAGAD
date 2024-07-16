@@ -1,61 +1,55 @@
-import torch
-import torch.nn as nn
-import torchvision.transforms as transforms
-from torchvision.datasets import ImageFolder
-import pandas as pd
 import os
 import numpy as np
+import pandas as pd
+import torch
+import torchvision.transforms as transforms
+from torchvision.datasets import ImageFolder
 from diffusers import AutoencoderKL
 
-# Load the pre-trained AutoencoderKL model
-model = AutoencoderKL.from_pretrained("CompVis/stable-diffusion-v1-4", subfolder="vae").cuda()
+class ImageFeatureExtractor:
+    def __init__(self, data_folder, model_name="CompVis/stable-diffusion-v1-4", image_size=(224, 224)):
+        self.data_folder = data_folder
+        self.model = AutoencoderKL.from_pretrained(model_name, subfolder="vae").cuda()
+        self.transform = transforms.Compose([
+            transforms.Resize(image_size),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ])
 
-# Define preprocessing transforms
-transform = transforms.Compose([
-    transforms.Resize((224, 224)),
-    transforms.ToTensor(),
-    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-])
+    def get_main_folders(self):
+        return [folder for folder in os.listdir(self.data_folder) if os.path.isdir(os.path.join(self.data_folder, folder))]
 
-# Step 1: Preprocessing Data (Example: Read images from a folder)
-data_folder = "D:\\Fauzan\\Study PhD\\Research\\DMAD\\mvtec_anomaly_detection"
-image_files = os.listdir(data_folder)
+    def encode_images(self):
+        latent_vectors = []
+        image_paths = []
+        main_folders = self.get_main_folders()
+        print(f"Main folders: {main_folders}")
 
-# Get list of main folders
-main_folders = [folder for folder in os.listdir(data_folder) if os.path.isdir(os.path.join(data_folder, folder))]
-print(f"Main folders: {main_folders}")
+        for main_folder in main_folders:
+            subfolders = [subfolder for subfolder in os.listdir(os.path.join(self.data_folder, main_folder)) if os.path.isdir(os.path.join(self.data_folder, main_folder, subfolder))]
+            print(f"Subfolders in {main_folder}: {subfolders}")
+            if subfolders:
+                subfolder = "train" if "train" in subfolders else subfolders[0]
+                print(f"Reading images from {subfolder} in {main_folder}")
+                images_in_subfolder = os.path.join(self.data_folder, main_folder, subfolder)
+                dataset = ImageFolder(root=images_in_subfolder, transform=self.transform)
 
-# Load or initialize the stable diffusion encoder model
-# model = Encoder().cuda()  # Move model to GPU
+                for i, (image, _) in enumerate(dataset):
+                    image_tensor = image.unsqueeze(0).cuda()
+                    with torch.no_grad():
+                        latent_vector = self.model.encode(image_tensor)
+                    latent_vectors.append(latent_vector.squeeze(0))
+                    image_paths.append(images_in_subfolder)
 
-# Encode images and store feature vectors in a dataframe
-feature_vectors = []
+        return latent_vectors, image_paths
 
-# Iterate through main folders and retrieve images from the first subfolder in each
-for main_folder in main_folders:
-    subfolders = [subfolder for subfolder in os.listdir(os.path.join(data_folder, main_folder)) if os.path.isdir(os.path.join(data_folder, main_folder, subfolder))]
-    print(f"Subfolders in {main_folder}: {subfolders}")
-    if subfolders:
-        subfolder = "train" if "train" in subfolders else subfolders[0]
-        print(f"Reading images from {subfolder} in {main_folder}")
-        images_in_subfolder = os.path.join(data_folder, main_folder, subfolder)
-        dataset = ImageFolder(root=images_in_subfolder, transform=transform)
+    # def save_feature_vectors(self, feature_vectors, filename='feature_vectors.npy'):
+    #     np.save(filename, feature_vectors)
+    #     print(f"Feature vectors saved to {filename}")
 
-        for i, (image, label) in enumerate(dataset):
-            # Convert image to tensor and move to GPU
-            image_tensor = torch.tensor(image).float().cuda()
-
-            # Add batch dimension if it doesn't exist
-            if len(image_tensor.shape) == 3:
-                image_tensor = image_tensor.unsqueeze(0)
-
-            # Encode image using the stable diffusion encoder
-            feature_vector = model.encode(image_tensor).latent_dist.mean
-            feature_vectors.append({'image_path': dataset.imgs[i][0], 'feature_vector': feature_vector.cpu().detach()})  # Move back to CPU before appending
-
-encoded_vectors = np.array(feature_vectors)
-# Create a dataframe from feature vectors
-df = pd.DataFrame(feature_vectors)
-
-# Save dataframe to CSV file
-np.save('feature_vectors.npy', encoded_vectors)
+# if __name__ == "__main__":
+#     data_folder = "D:\\Fauzan\\Study PhD\\Research\\DMAD\\mvtec_anomaly_detection"  # Use relative path
+#     extractor = ImageFeatureExtractor(data_folder)
+#     feature_vectors = extractor.encode_images()
+#     df = pd.DataFrame(feature_vectors)
+#     extractor.save_feature_vectors(df.to_dict('records'))
