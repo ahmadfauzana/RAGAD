@@ -74,7 +74,7 @@ def detect_anomalies(dataloader, reference_features, encoder, decoder, device, n
 
     # Compute AUC
     auc_score_anoscore = roc_auc_score(masks, anomaly_scores)
-    auc_score_anomap = roc_auc_score(masks, anomaly_scores)
+    auc_score_anomap = roc_auc_score(masks, anomaly_map)
     
     print(f"AUC Score: {auc_score_anoscore} related to Anomaly Score")
     print(f"AUC Score: {auc_score_anomap} related to Anomaly Map")
